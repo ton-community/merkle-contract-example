@@ -1,0 +1,135 @@
+#include "imports/stdlib.fc";
+
+const int size::message_send_mode = 8;
+const int size::exotic_type = 8;
+const int size::merkle_root = 256;
+
+const int exotic_type::merkle_proof = 3;
+const int exotic_type::merkle_update = 4;
+
+const int op::text_comment = 0;
+const int op::verify_merkle_proof = 0xc5375235;
+const int op::verify_merkle_update = 0x36ca9120;
+const int op::send_from_owner = 0xbc2883b;
+
+const int err::must_be_owner = 0x2001;
+const int err::operation_not_found = 0xffff;
+
+const slice comment::ok = "OK";
+const slice comment::error = "ERROR";
+
+(slice, int) begin_parse_exotic(cell x) asm "XCTOS";
+
+() send_comment(slice receiver, slice comment, int amount, int mode) impure inline {
+    builder body = begin_cell()
+        .store_op(op::text_comment)
+        .store_slice(comment);
+
+    cell msg = begin_cell()
+        .store_msg_flags_and_address_none(NON_BOUNCEABLE)
+        .store_slice(receiver)
+        .store_coins(amount)
+        .store_prefix_only_body()
+        .store_builder(body)
+        .end_cell();
+
+    send_raw_message(msg, mode);
+}
+
+
+int is_merkle_proof_valid(cell proof, int expected_root) impure inline {
+    (slice s, int is_exotic) = proof.begin_parse_exotic();
+    ifnot (is_exotic) {
+        return false;
+    }
+
+    int exotic_type = s~load_uint(size::exotic_type);
+    ifnot (exotic_type == exotic_type::merkle_proof) {
+        return false;
+    }
+
+    int merkle_hash = s~load_uint(size::merkle_root);
+    ;; cell inner_cell = s~load_ref();
+
+    return merkle_hash == expected_root;
+}
+
+() verify_merkle_proof(slice sender_address, slice in_msg_body) impure inline {
+    int merkle_root = in_msg_body~load_uint(size::merkle_root);
+    cell merkle_proof = in_msg_body~load_ref();
+
+    slice comment = merkle_proof.is_merkle_proof_valid(merkle_root) ? comment::ok : comment::error;
+
+    send_comment(sender_address, comment, 0, SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE);
+}
+
+int is_merkle_update_valid(cell proof, int expected_root) impure inline {
+    (slice s, int is_exotic) = proof.begin_parse_exotic();
+    ifnot (is_exotic) {
+        return false;
+    }
+
+    int exotic_type = s~load_uint(size::exotic_type);
+    ifnot (exotic_type == exotic_type::merkle_update) {
+        return false;
+    }
+
+    int old_merkle_hash = s~load_uint(size::merkle_root);
+    ;; int new_merkle_hash = s~load_uint(size::merkle_root);
+
+    return old_merkle_hash == expected_root;
+}
+
+() verify_merkle_update(slice sender_address, slice in_msg_body) impure inline {
+    int merkle_root = in_msg_body~load_uint(size::merkle_root);
+    cell merkle_update = in_msg_body~load_ref();
+
+    slice comment = merkle_update.is_merkle_update_valid(merkle_root) ? comment::ok : comment::error;
+
+    send_comment(sender_address, comment, 0, SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE);
+}
+
+() send_from_owner(slice sender_address, slice in_msg_body) impure inline {
+    slice owner_address = get_data().begin_parse();
+    throw_unless(err::must_be_owner, sender_address.equal_slice_bits(owner_address));
+    while (in_msg_body.slice_refs()) {
+        int mode = in_msg_body~load_uint(size::message_send_mode);
+        send_raw_message(in_msg_body~load_ref(), mode);
+    }
+}
+
+() recv_internal(cell in_msg_full, slice in_msg_body) impure {
+    if (in_msg_body.slice_bits() < MSG_OP_SIZE) {
+        return ();
+    }
+
+    slice in_msg_full_slice = in_msg_full.begin_parse();
+    int msg_flags = in_msg_full_slice~load_msg_flags();
+    if (msg_flags.is_bounced()) { ;; is bounced
+        return ();
+    }
+
+    slice sender_address = in_msg_full_slice~load_msg_addr();
+    int op = in_msg_body~load_op();
+
+    if (op == op::verify_merkle_proof) {
+        verify_merkle_proof(sender_address, in_msg_body);
+        return ();
+    }
+
+    if (op == op::verify_merkle_update) {
+        verify_merkle_update(sender_address, in_msg_body);
+        return ();
+    }
+
+    if (op == op::send_from_owner) {
+        send_from_owner(sender_address, in_msg_body);
+        return ();
+    }
+
+    throw(err::operation_not_found);
+}
+
+slice get_owner() method_id {
+    return get_data().begin_parse();
+}
