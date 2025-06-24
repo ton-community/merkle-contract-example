@@ -1,6 +1,6 @@
 import { Blockchain, SandboxContract, TreasuryContract } from '@ton/sandbox';
-import { beginCell, Cell, comment, Dictionary, internal, SendMode, toNano } from '@ton/core';
-import { Exotic } from '../wrappers/Exotic';
+import { Address, beginCell, Cell, comment, Dictionary, internal, SendMode, toNano } from '@ton/core';
+import { buildVerifyMerkleProof, buildVerifyMerkleUpdate, Exotic } from '../wrappers/Exotic';
 import '@ton/test-utils';
 import { compile } from '@ton/blueprint';
 import { randomAddress } from '@ton/test-utils';
@@ -15,6 +15,38 @@ function merkleFixture() {
     const merkleRoot = beginCell().storeDictDirect(dict).endCell().hash();
     return { dict, address, merkleRoot };
 }
+
+function buildSuccessMerkleProof() {
+    const { dict, merkleRoot, address } = merkleFixture();
+    const merkleProof = dict.generateMerkleProof([address]);
+    return { merkleRoot, merkleProof };
+}
+
+function buildSuccessMerkleUpdate() {
+    const { dict, address, merkleRoot } = merkleFixture();
+    const merkleUpdate = dict.generateMerkleUpdate(address, false); // NOTE: this updates dictionary with new value
+    return { merkleRoot, merkleUpdate };
+}
+
+// const merkleExampleAddress = '...';
+//
+//
+// const merkleProofBody = buildVerifyMerkleProof(buildSuccessMerkleProof());
+// const merkleUpdateBody = buildVerifyMerkleUpdate(buildSuccessMerkleUpdate());
+//
+// const myTransaction = {
+//     validUntil: Math.floor(Date.now() / 1000) + 360,
+//     messages: [
+//         {
+//             address: merkleExampleAddress,
+//             amount: toNano("0.05").toString(),
+//             payload: merkleProofBody.toBoc().toString("base64")
+//         }
+//     ]
+// }
+//
+// tonConnectUi.sendTransaction(myTransaction)
+
 
 describe('Exotic', () => {
     let code: Cell;
@@ -50,13 +82,11 @@ describe('Exotic', () => {
     });
 
     it('should verify merkle proof with OK comment', async () => {
-        const { dict, merkleRoot, address } = merkleFixture();
-        const merkleProof = dict.generateMerkleProof([address]);
-
-        const result = await exotic.sendVerifyMerkleProof(deployer.getSender(), toNano('0.05'), {
-            merkleProof,
-            merkleRoot,
-        });
+        const result = await exotic.sendVerifyMerkleProof(
+            deployer.getSender(),
+            toNano('0.05'),
+            buildSuccessMerkleProof(),
+        );
 
         expect(result.transactions).toHaveTransaction({
             from: exotic.address,
@@ -85,13 +115,11 @@ describe('Exotic', () => {
     });
 
     it('should verify merkle update with OK comment', async () => {
-        const { dict, address, merkleRoot } = merkleFixture();
-        const merkleUpdate = dict.generateMerkleUpdate(address, false); // NOTE: this updates dictionary with new value
-
-        const result = await exotic.sendVerifyMerkleUpdate(deployer.getSender(), toNano('0.05'), {
-            merkleUpdate,
-            merkleRoot,
-        });
+        const result = await exotic.sendVerifyMerkleUpdate(
+            deployer.getSender(),
+            toNano('0.05'),
+            buildSuccessMerkleUpdate(),
+        );
 
         expect(result.transactions).toHaveTransaction({
             from: exotic.address,
