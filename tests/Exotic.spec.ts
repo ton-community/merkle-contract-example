@@ -28,7 +28,7 @@ function buildSuccessMerkleUpdate() {
     return { merkleRoot, merkleUpdate };
 }
 
-// const merkleExampleAddress = '...';
+// const merkleExampleAddress = 'EQD_5KMZVIqzYY91-t5CdRD_V71wRrVzxDXu9n2XEwz2wwdv';
 //
 //
 // const merkleProofBody = buildVerifyMerkleProof(buildSuccessMerkleProof());
